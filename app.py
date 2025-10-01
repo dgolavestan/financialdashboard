@@ -280,7 +280,11 @@ def main():
                         df = data['data']
                         
                         # Filter to last 2 years only
-                        two_years_ago = datetime.now() - timedelta(days=730)
+                        two_years_ago = pd.Timestamp(datetime.now() - timedelta(days=730))
+                        # Make sure both are timezone-aware or both are timezone-naive
+                        if df['date'].dt.tz is not None:
+                            two_years_ago = two_years_ago.tz_localize('UTC')
+                        
                         df_filtered = df[df['date'] >= two_years_ago].copy()
                         
                         fig = go.Figure()
