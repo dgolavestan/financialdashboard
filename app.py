@@ -14,14 +14,33 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS for better styling
+# Custom CSS for white background and black text
 st.markdown("""
     <style>
+    /* Main background */
     .main {
+        background-color: white;
         padding: 0rem 1rem;
     }
+    
+    /* Sidebar background */
+    [data-testid="stSidebar"] {
+        background-color: white;
+    }
+    
+    /* All text to black */
+    .main, .main p, .main span, .main div {
+        color: black !important;
+    }
+    
+    /* Headers to black */
+    h1, h2, h3, h4, h5, h6 {
+        color: black !important;
+    }
+    
+    /* Metric styling */
     .stMetric {
-        background-color: #f0f2f6;
+        background-color: #f8f9fa;
         padding: 15px;
         border-radius: 10px;
         border-left: 4px solid #667eea;
@@ -31,11 +50,16 @@ st.markdown("""
         transform: translateY(-2px);
         transition: all 0.3s;
     }
-    h1 {
-        color: #667eea;
+    
+    /* Ensure markdown text is black */
+    .stMarkdown {
+        color: black !important;
     }
-    h2 {
-        color: #2d3748;
+    
+    /* Info boxes */
+    .stAlert {
+        background-color: #f8f9fa;
+        color: black !important;
     }
     </style>
 """, unsafe_allow_html=True)
