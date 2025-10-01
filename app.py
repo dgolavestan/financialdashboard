@@ -192,9 +192,10 @@ def load_all_market_data():
         
         df = fetch_tiingo_data(symbol, start_date, end_date)
         if df is not None:
-            # Calculate rolling returns
+            # Calculate rolling returns FIRST
             df_with_returns = calculate_rolling_returns(df)
-            metrics = calculate_performance(df)
+            # Then calculate performance metrics using those rolling returns
+            metrics = calculate_performance(df_with_returns)
             if metrics:
                 market_data[symbol] = {
                     **info,
