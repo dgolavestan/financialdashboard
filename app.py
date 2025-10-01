@@ -178,6 +178,30 @@ def calculate_rolling_returns(df, windows=[10, 30, 60]):
     
     return df
 
+def calculate_volatility_targeting(df, target_vol=15, vol_windows=[30, 90]):
+    """Calculate volatility targeting exposure for SPY"""
+    if df is None or len(df) == 0:
+        return None
+    
+    df = df.copy()
+    df = df.sort_values('date')
+    
+    # Calculate daily returns
+    df['daily_return'] = df['adj_close'].pct_change() * 100
+    
+    # Calculate rolling volatility (annualized) for each window
+    for window in vol_windows:
+        # Rolling standard deviation of daily returns
+        rolling_std = df['daily_return'].rolling(window=window).std()
+        # Annualize: multiply by sqrt(252 trading days)
+        df[f'volatility_{window}d'] = rolling_std * (252 ** 0.5)
+        
+        # Calculate target exposure: target_vol / realized_vol
+        # Floor at 0% (no negative exposure)
+        df[f'exposure_{window}d'] = (target_vol / df[f'volatility_{window}d']).clip(lower=0) * 100
+    
+    return df
+
 def calculate_performance(df):
     """Calculate performance metrics from price data"""
     if df is None or len(df) == 0:
@@ -259,6 +283,17 @@ def main():
     
     st.markdown("---")
     
+    # Create tabs
+    tab1, tab2 = st.tabs(["📈 Sector ETF Analysis", "🎯 Vol Targeting Positioning"])
+    
+    with tab1:
+        render_sector_analysis()
+    
+    with tab2:
+        render_vol_targeting()
+
+def render_sector_analysis():
+    """Render the sector ETF analysis tab"""
     # Load market data
     with st.spinner("Loading market data from Tiingo..."):
         market_data = load_all_market_data()
@@ -459,6 +494,221 @@ def main():
         st.markdown("⬜ **Neutral** (≈ 0%)")
     with col3:
         st.markdown("🟩 **Strong Positive** (> +10%)")
+
+def render_vol_targeting():
+    """Render the volatility targeting analysis tab"""
+    st.header("🎯 Vol Targeting Positioning - SPY")
+    st.markdown("*Estimated exposure for a 15% target volatility strategy*")
+    
+    # Sidebar settings for this tab
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("Vol Targeting Settings")
+    target_vol = st.sidebar.slider("Target Volatility (%)", min_value=5, max_value=30, value=15, step=1)
+    
+    # Load SPY data
+    with st.spinner("Loading SPY data from Tiingo..."):
+        end_date = datetime.now().strftime('%Y-%m-%d')
+        start_date = (datetime.now() - timedelta(days=730)).strftime('%Y-%m-%d')
+        
+        spy_df = fetch_tiingo_data('SPY', start_date, end_date)
+        
+        if spy_df is None:
+            st.error("Failed to load SPY data. Please check your API connection.")
+            return
+        
+        # Calculate volatility targeting
+        spy_df = calculate_volatility_targeting(spy_df, target_vol=target_vol, vol_windows=[30, 90])
+    
+    st.success("✅ Successfully loaded SPY data")
+    
+    # Filter to last 2 years for display
+    two_years_ago = pd.Timestamp(datetime.now() - timedelta(days=730))
+    if spy_df['date'].dt.tz is not None:
+        two_years_ago = two_years_ago.tz_localize('UTC')
+    spy_filtered = spy_df[spy_df['date'] >= two_years_ago].copy()
+    
+    # Main chart: Exposure levels
+    st.subheader("📊 Volatility-Targeted Exposure Over Time")
+    
+    fig = go.Figure()
+    
+    # Add 30-day exposure line
+    fig.add_trace(go.Scatter(
+        x=spy_filtered['date'],
+        y=spy_filtered['exposure_30d'],
+        mode='lines',
+        name='30-Day Vol',
+        line=dict(color='#667eea', width=2.5),
+        hovertemplate='<b>30-Day Vol Target</b><br>Date: %{x}<br>Exposure: %{y:.1f}%<extra></extra>'
+    ))
+    
+    # Add 90-day exposure line
+    fig.add_trace(go.Scatter(
+        x=spy_filtered['date'],
+        y=spy_filtered['exposure_90d'],
+        mode='lines',
+        name='90-Day Vol',
+        line=dict(color='#48bb78', width=2.5),
+        hovertemplate='<b>90-Day Vol Target</b><br>Date: %{x}<br>Exposure: %{y:.1f}%<extra></extra>'
+    ))
+    
+    # Add reference lines
+    fig.add_hline(y=100, line_dash="dash", line_color="orange", opacity=0.5, 
+                  annotation_text="100% (Unleveraged)", annotation_position="right")
+    fig.add_hline(y=0, line_dash="dash", line_color="gray", opacity=0.5,
+                  annotation_text="0% (Min Exposure)", annotation_position="right")
+    fig.add_hline(y=200, line_dash="dot", line_color="red", opacity=0.3,
+                  annotation_text="200% (2x Leverage)", annotation_position="right")
+    
+    fig.update_layout(
+        xaxis_title="Date",
+        yaxis_title="Target Exposure (%)",
+        height=500,
+        template="plotly_white",
+        hovermode='x unified',
+        showlegend=True,
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1
+        )
+    )
+    
+    st.plotly_chart(fig, use_container_width=True)
+    
+    # Summary statistics
+    st.subheader("📈 Current Positioning")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    current_30d_exp = spy_filtered['exposure_30d'].iloc[-1]
+    current_90d_exp = spy_filtered['exposure_90d'].iloc[-1]
+    current_30d_vol = spy_filtered['volatility_30d'].iloc[-1]
+    current_90d_vol = spy_filtered['volatility_90d'].iloc[-1]
+    
+    with col1:
+        st.metric(
+            label="30-Day Target Exposure",
+            value=f"{current_30d_exp:.1f}%",
+            delta=f"{current_30d_exp - spy_filtered['exposure_30d'].iloc[-2]:.1f}% vs yesterday"
+        )
+    
+    with col2:
+        st.metric(
+            label="90-Day Target Exposure",
+            value=f"{current_90d_exp:.1f}%",
+            delta=f"{current_90d_exp - spy_filtered['exposure_90d'].iloc[-2]:.1f}% vs yesterday"
+        )
+    
+    with col3:
+        st.metric(
+            label="30-Day Realized Vol",
+            value=f"{current_30d_vol:.1f}%",
+            delta=f"{current_30d_vol - target_vol:.1f}% vs target",
+            delta_color="inverse"
+        )
+    
+    with col4:
+        st.metric(
+            label="90-Day Realized Vol",
+            value=f"{current_90d_vol:.1f}%",
+            delta=f"{current_90d_vol - target_vol:.1f}% vs target",
+            delta_color="inverse"
+        )
+    
+    st.markdown("---")
+    
+    # Volatility chart
+    st.subheader("📉 Realized Volatility Over Time")
+    
+    fig_vol = go.Figure()
+    
+    fig_vol.add_trace(go.Scatter(
+        x=spy_filtered['date'],
+        y=spy_filtered['volatility_30d'],
+        mode='lines',
+        name='30-Day Realized Vol',
+        line=dict(color='#ed8936', width=2),
+        hovertemplate='<b>30-Day Vol</b><br>Date: %{x}<br>Volatility: %{y:.1f}%<extra></extra>'
+    ))
+    
+    fig_vol.add_trace(go.Scatter(
+        x=spy_filtered['date'],
+        y=spy_filtered['volatility_90d'],
+        mode='lines',
+        name='90-Day Realized Vol',
+        line=dict(color='#9f7aea', width=2),
+        hovertemplate='<b>90-Day Vol</b><br>Date: %{x}<br>Volatility: %{y:.1f}%<extra></extra>'
+    ))
+    
+    # Add target line
+    fig_vol.add_hline(y=target_vol, line_dash="dash", line_color="#667eea", opacity=0.7,
+                      annotation_text=f"Target: {target_vol}%", annotation_position="right")
+    
+    fig_vol.update_layout(
+        xaxis_title="Date",
+        yaxis_title="Annualized Volatility (%)",
+        height=400,
+        template="plotly_white",
+        hovermode='x unified',
+        showlegend=True,
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1
+        )
+    )
+    
+    st.plotly_chart(fig_vol, use_container_width=True)
+    
+    st.markdown("---")
+    
+    # Explanation
+    with st.expander("ℹ️ How Volatility Targeting Works"):
+        st.markdown("""
+        **Volatility targeting** is a strategy where portfolio exposure is adjusted to maintain a constant level of risk (volatility).
+        
+        **Formula:**
+        - Target Exposure = (Target Volatility / Realized Volatility) × 100%
+        - Capped at 100% (maximum) and 0% (minimum)
+        
+        **Example:**
+        - If target is 15% and realized vol is 15%: Exposure = 100%
+        - If realized vol rises to 30%: Exposure = 50% (reduce exposure)
+        - If realized vol falls to 7.5%: Exposure = 100% (at maximum)
+        
+        **Key Insights:**
+        - **Higher volatility** → Lower exposure (defensive positioning)
+        - **Lower volatility** → Higher exposure (aggressive positioning)
+        - This creates a systematic "buy low, sell high" pattern
+        - 30-day window is more responsive to recent changes
+        - 90-day window is smoother and less reactive
+        """)
+    
+    # Summary table
+    st.subheader("📋 Historical Exposure Statistics")
+    
+    stats_data = []
+    for window in [30, 90]:
+        exp_col = f'exposure_{window}d'
+        vol_col = f'volatility_{window}d'
+        
+        stats_data.append({
+            'Window': f'{window}-Day',
+            'Avg Exposure': f"{spy_filtered[exp_col].mean():.1f}%",
+            'Current Exposure': f"{spy_filtered[exp_col].iloc[-1]:.1f}%",
+            'Max Exposure': f"{spy_filtered[exp_col].max():.1f}%",
+            'Min Exposure': f"{spy_filtered[exp_col].min():.1f}%",
+            'Avg Volatility': f"{spy_filtered[vol_col].mean():.1f}%",
+            'Current Volatility': f"{spy_filtered[vol_col].iloc[-1]:.1f}%"
+        })
+    
+    stats_df = pd.DataFrame(stats_data)
+    st.dataframe(stats_df, hide_index=True, use_container_width=True)
 
 if __name__ == "__main__":
     main()
