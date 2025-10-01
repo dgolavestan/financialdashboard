@@ -159,22 +159,22 @@ def calculate_performance(df):
     if df is None or len(df) == 0:
         return None
     
-    current_price = df.iloc[-1]['close']
-    previous_close = df.iloc[-2]['close'] if len(df) > 1 else current_price
+    current_price = df.iloc[-1]['adj_close']
+    previous_close = df.iloc[-2]['adj_close'] if len(df) > 1 else current_price
     
-    # Calculate rolling performance
-    price_3m_ago = df.iloc[max(0, len(df) - 63)]['close'] if len(df) > 63 else df.iloc[0]['close']
-    price_6m_ago = df.iloc[max(0, len(df) - 126)]['close'] if len(df) > 126 else df.iloc[0]['close']
-    price_12m_ago = df.iloc[0]['close']
+    # Get the latest rolling returns from the pre-calculated columns
+    latest_10d = df['return_10d'].dropna().iloc[-1] if not df['return_10d'].dropna().empty else 0
+    latest_30d = df['return_30d'].dropna().iloc[-1] if not df['return_30d'].dropna().empty else 0
+    latest_60d = df['return_60d'].dropna().iloc[-1] if not df['return_60d'].dropna().empty else 0
     
     return {
         'current_price': current_price,
         'previous_close': previous_close,
         'day_change': current_price - previous_close,
         'day_change_pct': ((current_price - previous_close) / previous_close * 100),
-        'perf_3m': ((current_price - price_3m_ago) / price_3m_ago * 100),
-        'perf_6m': ((current_price - price_6m_ago) / price_6m_ago * 100),
-        'perf_12m': ((current_price - price_12m_ago) / price_12m_ago * 100)
+        'return_10d': latest_10d,
+        'return_30d': latest_30d,
+        'return_60d': latest_60d
     }
 
 def load_all_market_data():
@@ -367,18 +367,13 @@ def main():
     table_data = []
     for symbol, data in market_data.items():
         if 'data' in data and data['data'] is not None:
-            df = data['data']
-            # Get the most recent non-null values
-            latest_10d = df['return_10d'].dropna().iloc[-1] if not df['return_10d'].dropna().empty else 0
-            latest_30d = df['return_30d'].dropna().iloc[-1] if not df['return_30d'].dropna().empty else 0
-            latest_60d = df['return_60d'].dropna().iloc[-1] if not df['return_60d'].dropna().empty else 0
-            
+            # Use the same values from the performance calculations
             table_data.append({
                 'ETF': symbol,
                 'Sector': data['name'],
-                '10-Day ROC (%)': latest_10d,
-                '30-Day ROC (%)': latest_30d,
-                '60-Day ROC (%)': latest_60d
+                '10-Day ROC (%)': data['return_10d'],
+                '30-Day ROC (%)': data['return_30d'],
+                '60-Day ROC (%)': data['return_60d']
             })
     
     summary_df = pd.DataFrame(table_data)
